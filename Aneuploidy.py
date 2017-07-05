@@ -15,6 +15,7 @@ import glob
 import pickle
 import math
 import numpy as np
+import argparse
 
 def read_file(
         sample,\
@@ -24,14 +25,10 @@ def read_file(
         ):
     """
     读取比对原始文件，返回需要的变量
-    sample:
-        选取的样本
-    dirname:
-        文件目录
-    rd_file_ext:
-        rd文件后缀
-    gc_file_ext:
-        gc文件后缀
+    sample:         选取的样本
+    dirname:        文件目录
+    rd_file_ext:    rd文件后缀
+    gc_file_ext:    gc文件后缀
     """
     print "Handling %s....." % sample
     rd_file_regx = "%s/%s*.%s" % (dirname, sample, rd_file_ext)
@@ -52,7 +49,11 @@ def read_file(
     gc_per[gc_per.isnull()] = -1
     return rd, gc_per
 
-def read_win_ref(ref_file, dirname="./", chromlist=range(1,23)):
+def read_win_ref(
+        ref_file,\
+        dirname="./",\
+        chromlist=range(1,23)
+    ):
     """
     读取自建的increment参考集文件，并生成一个字典，键结构如下:
         chrom:
@@ -61,12 +62,9 @@ def read_win_ref(ref_file, dirname="./", chromlist=range(1,23)):
                 w_gc
                 w_coe
                 w_sd
-    ref_file:
-        参考集文件名
-    dirname:
-        参考集存放路径
-    chromlist:
-        感兴趣染色体列表
+    ref_file:   参考集文件名
+    dirname:    参考集存放路径
+    chromlist:  感兴趣染色体列表
     """
     try:
         refdata = pd.read_csv("%s/%s"%(dirname, ref_file), sep="\t")
@@ -103,13 +101,21 @@ def read_zscore_ref(ref_file, dirname="./", chromlist=range(1,23)):
     return refdict
 
 if __name__=='__main__':
-    samplefile = "p-sample.list"
+    parser = argparse.ArgumentParser(description="用于染色体非整倍体分析，或者生成zscore参考集\n建议大于5的认为是一个非整倍体")
+    parser.add_argument("--list", "-l", help="样本列表", required=True)
+    parser.add_argument("--inputdir", "-idir", help="比对序列存放路径",required=True)
+    parser.add_argument("--refdir","-rdir",help="参考文件存放路径", default="./")
+    parser.add_argument("--winref","-wref", help="窗口参考文件", default="ref")
+    parser.add_argument("--zscoreref","-zref", help="zscore参考文件", default="zscore")
+    args = parser.parse_args()
+
+    samplefile = args.list
     samplelist = pd.read_csv(samplefile, header=None)
-    #input_dir = "/home/bixichao/Projects/tmp/Increment/mapping"
-    input_dir = "./test-pathosis"
-    ref_file = "ref"
-    ref_dir = "./"
-    zscore_ref_file = "zscore"
+    input_dir = args.inputdir
+    ref_file = args.winref
+    ref_dir = args.refdir
+    zscore_ref_file = args.zscoreref
+
     chromlist = range(1,23)
     refdict = read_win_ref(ref_file, chromlist = chromlist, dirname=ref_dir)
     zscoreref = read_zscore_ref(zscore_ref_file, ref_dir)
@@ -134,8 +140,6 @@ if __name__=='__main__':
                             gc2rd[key].append(int(rd_get[index]["chr%d"%chrom]))
                         else:
                             gc2rd[key] = [int(rd_get[index]["chr%d"%chrom])]
-        #with open("refdict",'w') as f: pickle.dump(refdict,f)
-        #with open("gc2rd",'w') as f: pickle.dump(gc2rd,f)
         # remove window when rc less than 11
         for key in gc2rd.keys():
             if len(gc2rd[key]) < 10: gc2rd.pop(key)
@@ -177,29 +181,9 @@ if __name__=='__main__':
             for chrom in chromlist:
                 ratios = rd_stats[chrom]['ratio']
                 sds = rd_stats[chrom]['sd']
-                mean = np.mean(ratios)
+                mean = np.median(ratios)
                 sd = np.std(sds)
                 sz = (mean - t_mean)/t_sd
                 pz = (mean - 1)/sd
                 f.write("%d\t%.3f\t%.3f\t%.3f\n"%(chrom,mean,sz,pz))
-                #print "%d\t%.3f\t%.3f\t%.3f"%(chrom,mean,sz,pz)
                 print "%d\t%.3f\t%.3f"%(chrom, mean, (pz-zscoreref[chrom]['mean'])/zscoreref[chrom]['std'])
-        #print total_read
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
