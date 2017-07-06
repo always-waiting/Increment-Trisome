@@ -12,7 +12,6 @@
 
 import pandas as pd
 import glob
-import pickle
 import math
 import numpy as np
 import argparse
@@ -44,10 +43,14 @@ def read_file(
         print gc_file_regx, "没有找到文件", e
         return
     rd = pd.read_csv(rd_file, comment="#", index_col=0, sep="\t", header=None)
+    rd_total = sum(rd.sum())
+    rd_chr24 = sum(rd.ix['chr24'])
+    y_per = (float(rd_chr24)/25652954)/(float(rd_total)/2859017332)
+    gender = "M" if y_per > 0.18 else "F" # 0.2过于大了，许多都是0.19xxxx,也有0.188xxx的
     gc = pd.read_csv(gc_file, comment="#", index_col=0, sep="\t", header=None)
     gc_per = gc/(rd*36)
     gc_per[gc_per.isnull()] = -1
-    return rd, gc_per
+    return rd, gc_per, gender
 
 def read_win_ref(
         ref_file,\
@@ -67,7 +70,7 @@ def read_win_ref(
     chromlist:  感兴趣染色体列表
     """
     try:
-        refdata = pd.read_csv("%s/%s"%(dirname, ref_file), sep="\t")
+        refdata = pd.read_csv("%s/%s"%(dirname, ref_file), sep="\t", dtype={"ratio": np.str})
     except:
         print "解析%s/%s时出错"%(dirname,ref_file)
     refdict = {}
@@ -87,18 +90,44 @@ def read_zscore_ref(ref_file, dirname="./", chromlist=range(1,23)):
     """
     filename = "%s/%s"%(dirname,ref_file)
     try:
-        refdata = pd.read_csv(filename, sep="\t",index_col=0, skiprows=lambda x: (x!=201 and x!=0 and x!=202))
+        refdata = pd.read_csv(filename, sep="\t",index_col=0, skiprows=lambda x: (x!=201 and x!=0 and x!=202), dtype={"mean":np.str})
     except:
         print "解析%s/%s时出错"%(dirname,ref_file)
     refdict = {}
     for i,data in refdata.iterrows():
         for key, value  in data.to_dict().iteritems():
             key = int(key)
-            if refdict.has_key(key):
-                refdict[key][i] = value
+            if key == 23:
+                (fz,mz) = value.split("/")
+                if refdict.has_key(key):
+                    refdict[key][i] = {"M":float(mz),"F":float(fz)}
+                else:
+                    refdict[key] = {i:{"M":float(mz),"F":float(fz)}}
             else:
-                refdict[key] = {i:value}
+                if refdict.has_key(key):
+                    refdict[key][i] = float(value)
+                else:
+                    refdict[key] = {i:float(value)}
     return refdict
+
+class ParseChromlist(argparse.Action):
+    """
+    def __init__(self,strings, dest, nargs=None, **kwargs):
+        if nargs is not None:
+            raise ValueError("nargs not allowed")
+        super(ParseChromlist, self).__init__(strings, dest, **kwargs)
+    """
+    def __call__(self, parser, namespace, values, option_string=None):
+        #print '%r %r %r' % (namespace, values, option_string)
+        valueslist = values.split(",")
+        chromlist = []
+        for item in valueslist:
+            if item.find("..") != -1:
+                (start, end) = item.split("..");
+                chromlist.extend(range(int(start),int(end)+1))
+            else:
+                chromlist.append(eval(item))
+        setattr(namespace, self.dest, set(chromlist))
 
 if __name__=='__main__':
     parser = argparse.ArgumentParser(description="用于染色体非整倍体分析，或者生成zscore参考集\n建议大于5的认为是一个非整倍体")
@@ -107,6 +136,7 @@ if __name__=='__main__':
     parser.add_argument("--refdir","-rdir",help="参考文件存放路径", default="./")
     parser.add_argument("--winref","-wref", help="窗口参考文件", default="ref")
     parser.add_argument("--zscoreref","-zref", help="zscore参考文件", default="zscore")
+    parser.add_argument("--chromlist","-chr",help="感兴趣的染色体",default=set(range(1,25)), action=ParseChromlist)
     args = parser.parse_args()
 
     samplefile = args.list
@@ -115,12 +145,14 @@ if __name__=='__main__':
     ref_file = args.winref
     ref_dir = args.refdir
     zscore_ref_file = args.zscoreref
+    chromlist = range(1,25)
+    report_chromlist = args.chromlist
 
-    chromlist = range(1,23)
     refdict = read_win_ref(ref_file, chromlist = chromlist, dirname=ref_dir)
-    zscoreref = read_zscore_ref(zscore_ref_file, ref_dir)
+    zscoreref = read_zscore_ref(zscore_ref_file, ref_dir, chromlist = chromlist)
+    #print zscoreref
     for sample in samplelist.values:
-        (rd, gc_per) = read_file(sample[0], input_dir)
+        (rd, gc_per, gender) = read_file(sample[0], input_dir)
         get = (gc_per > 0) & (rd > 0)
         rd_get = rd[get]
         gc_per_get = gc_per[get]
@@ -136,6 +168,7 @@ if __name__=='__main__':
                         key = "%.3f"%gc_per_get[index]["chr%d"%chrom]
                         refdict[chrom][pos]['rc'] = int(rd_get[index]["chr%d"%chrom])
                         refdict[chrom][pos]['gc'] = float(key)
+                        if chrom > 22: continue
                         if gc2rd.has_key(key):
                             gc2rd[key].append(int(rd_get[index]["chr%d"%chrom]))
                         else:
@@ -165,20 +198,23 @@ if __name__=='__main__':
             rd_stats[chrom] = {'ratio':[],'sd':[]}
             for pos in refdict[chrom].keys():
                 rc = refdict[chrom][pos]['rc']
-                coe = refdict[chrom][pos]['w_coe']
+                if chrom == 23:
+                    coe = float(refdict[chrom][pos]['w_coe'].split("/")[0] if gender == "F" else refdict[chrom][pos]['w_coe'].split("/")[1])
+                else:
+                    coe = float(refdict[chrom][pos]['w_coe'])
                 sd = refdict[chrom][pos]['w_sd']
-                percent = float("%.3f"%(rc/(sum(total_read.values())*coe)))
+                if (coe == 0): continue
+                percent = float("%.3f"%(rc/(sum(total_read.values()[0:22])*coe)))
                 rd_stats[chrom]['ratio'].append(percent)
                 rd_stats[chrom]['sd'].append(sd)
 
-        #with open("rd_stats",'w') as f: pickle.dump(rd_stats,f)
         all_ratio = sum(map(lambda x: rd_stats[x]['ratio'],rd_stats.keys()),[])
         t_mean = np.mean(all_ratio)
         t_sd = np.std(all_ratio)
         # zscore
         with open("%s/%s.zscore"%(input_dir,sample[0]),'w') as f:
             f.write("chr\tRatioMean\tSZ\tPZ\n")
-            for chrom in chromlist:
+            for chrom in report_chromlist:
                 ratios = rd_stats[chrom]['ratio']
                 sds = rd_stats[chrom]['sd']
                 mean = np.median(ratios)
@@ -186,4 +222,14 @@ if __name__=='__main__':
                 sz = (mean - t_mean)/t_sd
                 pz = (mean - 1)/sd
                 f.write("%d\t%.3f\t%.3f\t%.3f\n"%(chrom,mean,sz,pz))
-                print "%d\t%.3f\t%.3f"%(chrom, mean, (pz-zscoreref[chrom]['mean'])/zscoreref[chrom]['std'])
+                if chrom == 23:
+                    print "%d\t%.3f\t%.3f"%(chrom, mean, (pz-zscoreref[chrom]['mean'][gender])/zscoreref[chrom]['std'][gender])
+                else:
+                    print "%d\t%.3f\t%.3f"%(chrom, mean, (pz-zscoreref[chrom]['mean'])/zscoreref[chrom]['std'])
+
+
+
+
+
+
+
