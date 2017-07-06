@@ -134,8 +134,8 @@ if __name__=='__main__':
     parser.add_argument("--list", "-l", help="样本列表", required=True)
     parser.add_argument("--inputdir", "-idir", help="比对序列存放路径",required=True)
     parser.add_argument("--refdir","-rdir",help="参考文件存放路径", default="./")
-    parser.add_argument("--winref","-wref", help="窗口参考文件", default="ref")
-    parser.add_argument("--zscoreref","-zref", help="zscore参考文件", default="zscore")
+    parser.add_argument("--winref","-wref", help="窗口参考文件", default="ref-all")
+    parser.add_argument("--zscoreref","-zref", help="zscore参考文件", default="zscore-all")
     parser.add_argument("--chromlist","-chr",help="感兴趣的染色体",default=set(range(1,25)), action=ParseChromlist)
     args = parser.parse_args()
 
