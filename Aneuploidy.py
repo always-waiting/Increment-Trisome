@@ -46,7 +46,7 @@ def read_file(
     rd_total = sum(rd.sum())
     rd_chr24 = sum(rd.ix['chr24'])
     y_per = (float(rd_chr24)/25652954)/(float(rd_total)/2859017332)
-    gender = "M" if y_per > 0.18 else "F" # 0.2过于大了，许多都是0.19xxxx,也有0.188xxx的
+    gender = "M" if y_per > 0.16 else "F" # 0.2过于大了，许多都是0.19xxxx,也有0.188xxx,0.17xxx的
     gc = pd.read_csv(gc_file, comment="#", index_col=0, sep="\t", header=None)
     gc_per = gc/(rd*36)
     gc_per[gc_per.isnull()] = -1
