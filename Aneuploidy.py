@@ -20,7 +20,8 @@ def read_file(
         sample,\
         dirname='./',\
         rd_file_ext='gz.20K.txt',\
-        gc_file_ext='gz.20K.GC.txt'\
+        gc_file_ext='gz.20K.GC.txt',\
+        win_bin = 1
         ):
     """
     读取比对原始文件，返回需要的变量
@@ -30,6 +31,7 @@ def read_file(
     gc_file_ext:    gc文件后缀
     """
     print "Handling %s....." % sample
+    total_loop = 12500/win_bin
     rd_file_regx = "%s/%s*.%s" % (dirname, sample, rd_file_ext)
     try:
         rd_file = glob.glob(rd_file_regx)[0]
@@ -48,9 +50,11 @@ def read_file(
     y_per = (float(rd_chr24)/25652954)/(float(rd_total)/2859017332)
     gender = "M" if y_per > 0.16 else "F" # 0.2过于大了，许多都是0.19xxxx,也有0.188xxx,0.17xxx的
     gc = pd.read_csv(gc_file, comment="#", index_col=0, sep="\t", header=None)
-    gc_per = gc/(rd*36)
+    rd_merge = pd.DataFrame([rd[list(range(1+i*win_bin,1+(i+1)*win_bin))].sum(axis=1) for i in range(total_loop)],index = [range(1,total_loop + 1)]).T
+    gc_merge = pd.DataFrame([gc[list(range(1+i*win_bin,1+(i+1)*win_bin))].sum(axis=1) for i in range(total_loop)],index = [range(1,total_loop + 1)]).T
+    gc_per = gc_merge/(rd_merge*36)
     gc_per[gc_per.isnull()] = -1
-    return rd, gc_per, gender
+    return rd_merge, gc_per, gender
 
 def read_win_ref(
         ref_file,\
@@ -137,6 +141,8 @@ if __name__=='__main__':
     parser.add_argument("--winref","-wref", help="窗口参考文件", default="ref-all")
     parser.add_argument("--zscoreref","-zref", help="zscore参考文件", default="zscore-all")
     parser.add_argument("--chromlist","-chr",help="感兴趣的染色体",default=set(range(1,25)), action=ParseChromlist)
+    parser.add_argument("--bin", '-b', help="窗口bin数",default=1,type=int)
+    parser.add_argument("--no-zscore-again",'-nza', help="不应用zscore参考集二次矫正", action="store_false", dest='zscoreflag')
     args = parser.parse_args()
 
     samplefile = args.list
@@ -147,18 +153,19 @@ if __name__=='__main__':
     zscore_ref_file = args.zscoreref
     chromlist = range(1,25)
     report_chromlist = args.chromlist
-
+    win_bin = args.bin
     refdict = read_win_ref(ref_file, chromlist = chromlist, dirname=ref_dir)
-    zscoreref = read_zscore_ref(zscore_ref_file, ref_dir, chromlist = chromlist)
+    if args.zscoreflag:
+        zscoreref = read_zscore_ref(zscore_ref_file, ref_dir, chromlist = chromlist)
     #print zscoreref
     for sample in samplelist.values:
-        (rd, gc_per, gender) = read_file(sample[0], input_dir)
+        (rd, gc_per, gender) = read_file(sample[0], input_dir, win_bin = win_bin)
         get = (gc_per > 0) & (rd > 0)
         rd_get = rd[get]
         gc_per_get = gc_per[get]
         gc2rd = {}
         for index in rd_get.columns:
-            pos = 20000*(index-1) + 1
+            pos = 20000*win_bin*(index-1) + 1
             for chrom in chromlist:
                 if refdict[chrom].has_key(pos):
                     if math.isnan(rd_get[index]["chr%d"%chrom]):
@@ -212,7 +219,7 @@ if __name__=='__main__':
         t_mean = np.mean(all_ratio)
         t_sd = np.std(all_ratio)
         # zscore
-        with open("%s/%s.zscore"%(input_dir,sample[0]),'w') as f:
+        with open("%s/%s.b%d.zscore.txt"%(input_dir,sample[0], win_bin),'w') as f:
             f.write("chr\tRatioMean\tSZ\tPZ\n")
             for chrom in report_chromlist:
                 ratios = rd_stats[chrom]['ratio']
@@ -222,10 +229,13 @@ if __name__=='__main__':
                 sz = (mean - t_mean)/t_sd
                 pz = (mean - 1)/sd
                 f.write("%d\t%.3f\t%.3f\t%.3f\n"%(chrom,mean,sz,pz))
-                if chrom == 23:
-                    print "%d\t%.3f\t%.3f"%(chrom, mean, (pz-zscoreref[chrom]['mean'][gender])/zscoreref[chrom]['std'][gender])
+                if args.zscoreflag:
+                    if chrom == 23:
+                        print "%d\t%.3f\t%.3f"%(chrom, mean, (pz-zscoreref[chrom]['mean'][gender])/zscoreref[chrom]['std'][gender])
+                    else:
+                        print "%d\t%.3f\t%.3f"%(chrom, mean, (pz-zscoreref[chrom]['mean'])/zscoreref[chrom]['std'])
                 else:
-                    print "%d\t%.3f\t%.3f"%(chrom, mean, (pz-zscoreref[chrom]['mean'])/zscoreref[chrom]['std'])
+                    print "%d\t%.3f\t%.3f"%(chrom,mean, pz)
 
 
 
