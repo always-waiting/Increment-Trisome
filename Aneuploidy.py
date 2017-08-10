@@ -218,29 +218,17 @@ if __name__=='__main__':
         all_ratio = sum(map(lambda x: rd_stats[x]['ratio'],rd_stats.keys()),[])
         t_mean = np.mean(all_ratio)
         t_sd = np.std(all_ratio)
-        # zscore
-        #msb = 0.0
-        #mse = 0.0
-        #total_number = 0
         with open("%s/%s.b%d.zscore.txt"%(input_dir,sample[0], win_bin),'w') as f:
             f.write("chr\tRatioMean\tSZ\tPZ\n")
             for chrom in report_chromlist:
                 ratios = rd_stats[chrom]['ratio']
                 sds = rd_stats[chrom]['sd']
                 mean = np.median(ratios)
-                #std_new = np.std(ratios)
                 sd = np.std(sds)
-                sd_sds = (sum(np.multiply(sds,sds))/len(sds))**0.5
-                #print sd_sds
+                #sd_sds = (sum(np.multiply(sds,sds))/len(sds))**0.5
                 sz = (mean - t_mean)/t_sd
-                #sz1 = (mean - t_mean)/std_new
                 pz = (mean - 1)/sd
-                pz_new = (mean -1)/sd_sds
-
-                #msb = msb + (mean - t_mean)**2*len(ratios)
-                #mse = mse + np.var(ratios)*len(ratios)
-                #total_number = len(ratios) + total_number
-
+                #pz_new = (mean -1)/sd_sds
                 f.write("%d\t%.3f\t%.3f\t%.3f\n"%(chrom,mean,sz,pz))
                 if args.zscoreflag:
                     if chrom == 23:
@@ -248,16 +236,7 @@ if __name__=='__main__':
                     else:
                         print "%d\t%.3f\t%.3f"%(chrom, mean, (pz-zscoreref[chrom]['mean'])/zscoreref[chrom]['std'])
                 else:
-                    print "%d\t%.3f\t%.3f"%(chrom, mean, pz_new)
+                    print "%d\t%.3f\t%.3f"%(chrom, mean, pz)
                     #print "| %d | %.3f | %.3f | %.3f | %.3f | %.3f |"%(chrom,mean, sd, sd_sds, pz, pz_new)
                     #print "| %d | %.3f | %.3f | %.3f | %.3f | %.3f"%(chrom,mean, t_mean, t_sd, sz, std_new)
                     #print "| %d | %.3f | %.3f | %.3f | %.3f | %.3f"%(chrom,mean, t_mean, t_sd, sz1, std_new)
-
-
-        #print "MSB: %.3f" % (msb/23)
-        #print "MSE: %.3f" % (mse/total_number)
-        #print "Total: %d" % total_number
-
-
-
-
