@@ -1,0 +1,27 @@
+#!/usr/bin/env python
+# -*- encoding: UTF8 -*-
+import berry_increment_trisome
+import argparse
+from berry_increment_trisome.berry_increment_trisome import dirobj
+
+parser = argparse.ArgumentParser(description="用于染色体非整倍体分析，或者生成zscore参考集\n建议大于5的认为是一个非整倍体")
+parser.add_argument("--indir", "-idir", help="比对序列存放路径,例如/seq_dir/staff/deploy/CNV/",required=True)
+parser.add_argument("--flowcell", "-fc", help="导入的批次号，例如170814_NS500276_001_AAAAAAAA",required=True)
+parser.add_argument("--samplefile", help="样本分析完成结果文件，默认为%%s.b%%d.zscore.txt", default="%s.b%d.zscore.txt")
+parser.add_argument("--bin", '-b', help="窗口bin数",default=1,type=int)
+parser.add_argument("--mongourl",help="mongodb url,默认为mongodb://localhost:27017/",default="mongodb://localhost:27017/")
+parser.add_argument("--db",help="mongodb数据库名,默认为xromate_example", default="xromate_example")
+parser.add_argument("--coll",help="数据库表名,默认为samples",default="samples")
+#parser.add_argument("--insert_db",help="是否导入数据库，默认为False",action='store_true')
+parser.add_argument("--verbose",help="打印变量",action="store_true")
+
+
+args = parser.parse_args()
+if args.verbose:
+    for key in sorted(args.__dict__.iterkeys()):
+        print "\t%-20s\t%-15s\t%-30s" % (key, "-"*10,args.__dict__[key])
+    exit(0)
+kwargs = args.__dict__.copy()
+kwargs['indir'] = dirobj(args.__dict__['indir'])
+obj = berry_increment_trisome.BerryIncrementTrisome(**kwargs)
+obj.import_mongo()

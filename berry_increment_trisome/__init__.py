@@ -1,1 +1,2 @@
 from .berry_increment_trisome import BerryIncrementTrisomeAuto
+from .berry_increment_trisome import BerryIncrementTrisome

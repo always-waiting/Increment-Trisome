@@ -15,7 +15,8 @@ setup(
     ],
     include_package_data=True,
     scripts=[
-        "bin/berry-increment-trisome-auto"
+        "bin/berry-increment-trisome-auto",
+        "bin/berry-increment-trisome-import"
     ],
     zip_safe=False
 )

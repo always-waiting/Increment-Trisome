@@ -116,7 +116,9 @@ class BerryIncrementTrisomeAuto(object):
     def analyse_flowcell(self):
         for flowcell in self.flowcell:
             print "Analyzing %s ...." % flowcell
-            obj = BerryIncrementTrisome(flowcell, self.__dict__)
+            kwargs = self.__dict__.copy()
+            kwargs.pop('flowcell')
+            obj = BerryIncrementTrisome(flowcell, **kwargs)
             obj.pipeline()
 
 class BerryIncrementTrisome(object):
@@ -141,18 +143,31 @@ class BerryIncrementTrisome(object):
         "coll"              : "samples",
         "insert_db"         : True
     }
-    def __init__(self,flowcell, kwargs):
+    def __init__(self,flowcell, *args, **kwargs):
         self.flowcell = flowcell
         for key in BerryIncrementTrisome.defaultvalue.keys():
             if key in kwargs.keys():
-                self.__dict__[key] = kwargs[key]
+                if key == "indir":
+                    if isinstance(kwargs[key],dirobj):
+                        self.__dict__[key] = kwargs[key]
+                    elif isinstance(kwargs[key],str):
+                        self.__dict__[key] = dirobj(kwargs[key])
+                    else:
+                        raise BerryIncrementTrisomeException("indir should be str or dirobj")
+                else:
+                    self.__dict__[key] = kwargs[key]
             else:
-                self.__dict__[key] = BerryIncrementTrisome.defaultvalue[key]
+                if key == "indir":
+                    self.__dict__[key] = dirobj(BerryIncrementTrisome.defaultvalue[key])
+                else:
+                    self.__dict__[key] = BerryIncrementTrisome.defaultvalue[key]
         self.__dict__["indir"] = dirobj(self.indir.path + "/" + self.flowcell)
         self.samplelist = []
         self.sampleresult = {}
         self.refdict = {}
         self.zref = {}
+    def detect_sample(self):
+        self.__detect_sample()
 
     def __pre_analyze(self):
         print "pre analyzing..."
@@ -342,6 +357,20 @@ class BerryIncrementTrisome(object):
     def __write_endfile(self):
         with open(os.path.join(self.indir.path,self.endfile),"w") as f:
             map(lambda x: f.write("%s\n"%x), self.samplelist)
+    def import_mongo(self):
+        self.__detect_sample()
+        for sample in self.samplelist:
+            self.sampleresult[sample] = {}
+            samplefile = os.path.join(self.indir.path,self.samplefile%(sample,self.bin))
+            try:
+                with open(samplefile) as f:
+                    f.readline()
+                    for line in f.readlines():
+                        lines = line.strip().split("\t")
+                        self.sampleresult[sample][int(lines[0])] = float(lines[3])
+            except:
+                raise BerryIncrementTrisomeException("Failed when read %s"%samplefile)
+        self.__import_mongo()
     def __import_mongo(self):
         client = pymongo.MongoClient(self.mongourl)
         db = client[self.db]
@@ -360,3 +389,4 @@ class BerryIncrementTrisome(object):
                 coll.update_one({"name":sample},{"$set": viewdict}, upsert=False)
             except:
                 print "%s import %s failed"%(sample, self.mongourl)
+                print viewdict
