@@ -1,0 +1,53 @@
+#!/usr/bin/env python
+# -*- encoding: UTF8 -*-
+import berry_increment_trisome
+import argparse
+
+class ParseChromlist(argparse.Action):
+    """
+    def __init__(self,strings, dest, nargs=None, **kwargs):
+        if nargs is not None:
+            raise ValueError("nargs not allowed")
+        super(ParseChromlist, self).__init__(strings, dest, **kwargs)
+    """
+    def __call__(self, parser, namespace, values, option_string=None):
+        #print '%r %r %r' % (namespace, values, option_string)
+        valueslist = values.split(",")
+        chromlist = []
+        for item in valueslist:
+            if item.find("..") != -1:
+                (start, end) = item.split("..");
+                chromlist.extend(range(int(start),int(end)+1))
+            else:
+                chromlist.append(eval(item))
+        setattr(namespace, self.dest, set(chromlist))
+
+parser = argparse.ArgumentParser(description="用于染色体非整倍体分析，或者生成zscore参考集\n建议大于5的认为是一个非整倍体")
+parser.add_argument("--inputdir", "-idir", help="比对序列存放路径,例如/seq_dir/staff/deploy/CNV/",required=True)
+parser.add_argument("--date","-d",help="检测天数,默认为3", default=3, type=int)
+parser.add_argument("--endfile", help="分析完成标志文件,默认为trisome.end",default="trisome.end")
+parser.add_argument("--samplefile", help="样本分析完成结果文件，默认为%%s.b%%d.zscore.txt", default="%s.b%d.zscore.txt")
+parser.add_argument("--bin", '-b', help="窗口bin数",default=1,type=int)
+parser.add_argument("--rd_ext", help="比对序列rd文件后缀，默认为gz.20K.txt",default="gz.20K.txt")
+parser.add_argument("--gc_ext", help="比对序列gc文件后缀，默认为gz.20K.GC.txt",default="gz.20K.GC.txt")
+parser.add_argument("--refdir",help="参考集存储文件夹,默认为./",default="./") # 需要修改!!
+parser.add_argument("--winref",help="窗口参考集文件名,默认为ref-b%%d.txt",default="ref-b%d.txt")
+parser.add_argument("--zscoreref", help="zscore参考文件文件名,默认为zscore.b%%d.txt",default="zscore.b%d.txt")
+parser.add_argument("--report_chromlist",help="报告的染色体,默认全部",default=set(range(1,25)), action=ParseChromlist)
+parser.add_argument("--za",help="是否做二次z值,默认为True",default=True)
+parser.add_argument("--mongourl",help="mongodb url,默认为mongodb://localhost:27017/",default="mongodb://localhost:27017/")
+parser.add_argument("--db",help="mongodb数据库名,默认为xromate_example", default="xromate_example")
+parser.add_argument("--coll",help="数据库表名,默认为samples",default="samples")
+parser.add_argument("--insert_db",help="是否导入数据库，默认为False",default=False)
+parser.add_argument("--verbose",help="打印变量",action="store_true")
+
+args = parser.parse_args()
+if args.verbose:
+    for key in sorted(args.__dict__.iterkeys()):
+        print "\t%-20s\t%-15s\t%-30s" % (key, "-"*10,args.__dict__[key])
+    exit(0)
+
+obj = berry_increment_trisome.BerryIncrementTrisomeAuto(args.inputdir, **args.__dict__)
+#print obj.__dict__
+obj.detect_flowcell()
+obj.analyse_flowcell()
