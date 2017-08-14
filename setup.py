@@ -17,8 +17,5 @@ setup(
     scripts=[
         "bin/berry-increment-trisome-auto"
     ],
-    package_data={
-        'berry_increment_trisome': ['ref/*.txt']
-    },
     zip_safe=False
 )

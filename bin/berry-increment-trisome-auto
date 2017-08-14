@@ -30,7 +30,7 @@ parser.add_argument("--samplefile", help="样本分析完成结果文件，默�
 parser.add_argument("--bin", '-b', help="窗口bin数",default=1,type=int)
 parser.add_argument("--rd_ext", help="比对序列rd文件后缀，默认为gz.20K.txt",default="gz.20K.txt")
 parser.add_argument("--gc_ext", help="比对序列gc文件后缀，默认为gz.20K.GC.txt",default="gz.20K.GC.txt")
-parser.add_argument("--refdir",help="参考集存储文件夹,默认为./",default="./") # 需要修改!!
+parser.add_argument("--refdir",help="参考集存储文件夹,默认为./",default=berry_increment_trisome.__path__[0]+"/ref")
 parser.add_argument("--winref",help="窗口参考集文件名,默认为ref-b%%d.txt",default="ref-b%d.txt")
 parser.add_argument("--zscoreref", help="zscore参考文件文件名,默认为zscore.b%%d.txt",default="zscore.b%d.txt")
 parser.add_argument("--report_chromlist",help="报告的染色体,默认全部",default=set(range(1,25)), action=ParseChromlist)
