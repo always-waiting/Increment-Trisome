@@ -34,11 +34,11 @@ parser.add_argument("--refdir",help="参考集存储文件夹,默认为./",defau
 parser.add_argument("--winref",help="窗口参考集文件名,默认为ref-b%%d.txt",default="ref-b%d.txt")
 parser.add_argument("--zscoreref", help="zscore参考文件文件名,默认为zscore.b%%d.txt",default="zscore.b%d.txt")
 parser.add_argument("--report_chromlist",help="报告的染色体,默认全部",default=set(range(1,25)), action=ParseChromlist)
-parser.add_argument("--za",help="是否做二次z值,默认为True",default=True)
+parser.add_argument("--za",help="是否做二次z值,默认为False",action='store_true')
 parser.add_argument("--mongourl",help="mongodb url,默认为mongodb://localhost:27017/",default="mongodb://localhost:27017/")
 parser.add_argument("--db",help="mongodb数据库名,默认为xromate_example", default="xromate_example")
 parser.add_argument("--coll",help="数据库表名,默认为samples",default="samples")
-parser.add_argument("--insert_db",help="是否导入数据库，默认为False",default=False)
+parser.add_argument("--insert_db",help="是否导入数据库，默认为False",action='store_true')
 parser.add_argument("--verbose",help="打印变量",action="store_true")
 
 args = parser.parse_args()
