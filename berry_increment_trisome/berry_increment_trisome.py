@@ -13,8 +13,14 @@ import pandas as pd
 import numpy as np
 import math
 import pymongo
+import logging
 
-
+logger = logging.getLogger("default")
+logger.setLevel(logging.DEBUG)
+console = logging.StreamHandler()
+formatter = logging.Formatter("%(levelname)s:%(name)s:%(message)s")
+console.setFormatter(formatter)
+logger.addHandler(console)
 
 class BerryIncrementTrisomeException(Exception):
     def __init__(self, message):
@@ -67,6 +73,7 @@ class BerryIncrementTrisomeAuto(object):
         "db"                : "xromate_mandel",
         "coll"              : "samples",
         "insert_db"         : False,
+        "logger"            : logger
     }
     def __init__(self,indir,*args,**kwargs):
         self.indir = dirobj(indir)
@@ -115,7 +122,7 @@ class BerryIncrementTrisomeAuto(object):
         return self.flowcell
     def analyse_flowcell(self):
         for flowcell in self.flowcell:
-            print "Analyzing %s ...." % flowcell
+            self.logger.info("Analyzing %s ...." % flowcell)
             kwargs = self.__dict__.copy()
             kwargs.pop('flowcell')
             obj = BerryIncrementTrisome(flowcell, **kwargs)
@@ -141,7 +148,8 @@ class BerryIncrementTrisome(object):
         "mongourl"          : "mongodb://localhost:27017/",
         "db"                : "xromate_mandel",
         "coll"              : "samples",
-        "insert_db"         : True
+        "insert_db"         : True,
+        "logger"            : logger
     }
     def __init__(self,flowcell, *args, **kwargs):
         self.flowcell = flowcell
@@ -170,7 +178,7 @@ class BerryIncrementTrisome(object):
         self.__detect_sample()
 
     def __pre_analyze(self):
-        print "pre analyzing..."
+        self.logger.info("pre analyzing...")
         self.__detect_sample()
         self.__read_win_ref()
         if self.za:
@@ -235,7 +243,7 @@ class BerryIncrementTrisome(object):
         """
         读取比对原始文件，返回需要的变量
         """
-        print "Reading %s"%sample
+        self.logger.info("Reading %s"%sample)
         total_loop = 12500/self.bin
         rd_file_regx = "%s/%s*.%s"%(self.indir.path,sample,self.rd_ext)
         try:
@@ -265,7 +273,7 @@ class BerryIncrementTrisome(object):
 
     def __analyze(self):
         for sample in self.samplelist:
-            print "Analysing %s"%sample
+            self.logger.info("Analysing %s"%sample)
             (rd, gc_per, gender) = self.__read_file(sample)
             #if not rd: continue # 某个样本读取文件出错!
             get = (gc_per > 0) & (rd > 0)
@@ -326,7 +334,7 @@ class BerryIncrementTrisome(object):
             all_ratio = sum(map(lambda x: rd_stats[x]['ratio'],rd_stats.keys()),[])
             t_mean = np.mean(all_ratio)
             t_sd = np.std(all_ratio)
-            print "Writing %s result..."%sample
+            self.logger.info("Writing %s result..."%sample)
             with open(os.path.join(self.indir.path,self.samplefile%(sample,self.bin)),'w') as f:
                 f.write("chr\tRatioMean\tSZ\tPZ\n")
                 for chrom in self.report_chromlist:
@@ -376,7 +384,7 @@ class BerryIncrementTrisome(object):
         db = client[self.db]
         coll = db[self.coll]
         for sample in self.samplelist:
-            print "Importing %s"%sample
+            self.logger.info("Importing %s"%sample)
             viewdict = {}
             try:
                 for chrom in self.sampleresult[sample]:
@@ -388,5 +396,5 @@ class BerryIncrementTrisome(object):
                         viewdict["trisomescore.%d"%chrom] = "%.3f"%self.sampleresult[sample][chrom]
                 coll.update_one({"name":sample},{"$set": viewdict}, upsert=False)
             except:
-                print "%s import %s failed"%(sample, self.mongourl)
-                print viewdict
+                self.logger.info("%s import %s failed"%(sample, self.mongourl))
+                self.logger.info(viewdict)
