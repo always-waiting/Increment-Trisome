@@ -88,6 +88,11 @@ class ParseChromlist(argparse.Action):
                 chromlist.append(eval(item))
         setattr(namespace, self.dest, set(chromlist))
 
+class MailRecipients(argparse.Action):
+    def __call__(self, parser, namespace, values, option_string=None):
+        valueslist = values.split(",")
+        setattr(namespace, self.dest, valueslist)
+
 parser = argparse.ArgumentParser(description="用于染色体非整倍体分析，或者生成zscore参考集\n建议大于5的认为是一个非整倍体")
 parser.add_argument("--inputdir", "-idir", help="比对序列存放路径,例如/seq_dir/staff/deploy/CNV/",required=True)
 parser.add_argument("--date","-d",help="检测天数,默认为3", default=3, type=int)
@@ -108,6 +113,9 @@ parser.add_argument("--insert_db",help="是否导入数据库，默认为False",
 parser.add_argument("--verbose",help="打印变量",action="store_true")
 parser.add_argument("--lockfile", help="文件锁,如果被锁，不进行分析", default="/tmp/berry-increment-trisome.lock")
 parser.add_argument("--logfile", help="Log文件地址，默认当前目录下berry-increment-trisome.log", default="./berry-increment-trisome.log")
+parser.add_argument("--mail_sender", help="邮件发送者",default="bbgbio@berrygenomics.com")
+parser.add_argument("--mail_recipients",help="邮件接受者",default=["bixichao@berrygenomics.com"],action=MailRecipients)
+parser.add_argument("--mail", help="是否发送邮件",action="store_true")
 
 args = parser.parse_args()
 if args.verbose:

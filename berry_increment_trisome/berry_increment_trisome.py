@@ -14,6 +14,8 @@ import numpy as np
 import math
 import pymongo
 import logging
+import smtplib
+from email.mime.text import MIMEText
 
 logger = logging.getLogger("default")
 logger.setLevel(logging.DEBUG)
@@ -73,7 +75,10 @@ class BerryIncrementTrisomeAuto(object):
         "db"                : "xromate_mandel",
         "coll"              : "samples",
         "insert_db"         : False,
-        "logger"            : logger
+        "logger"            : logger,
+        "mail_sender"       : "cnvinfo@berrygenomics.com",
+        "mail_recipients"   : ["bixichao@berrygenomics.com"],
+        "mail"              : False
     }
     def __init__(self,indir,*args,**kwargs):
         self.indir = dirobj(indir)
@@ -120,13 +125,50 @@ class BerryIncrementTrisomeAuto(object):
             self.flowcell = []
         self.flowcell.extend(self.indir.filter(__filter_rule))
         return self.flowcell
+
+    def send_mail(self, flowcell, stage, status, **kwargs):
+        if self.mail:
+            mail_sub = "TrisomeScore | [%s] -"
+            mail_content_basic =\
+"""
+\t[批次] -- %s
+\t[状态] -- %s
+"""
+            mail_add = [mail_content_basic]
+            if len(kwargs) != 0:
+                for key,value  in kwargs.iteritems():
+                    mail_add.append("\t[%s] -- %s\n"%(key, value))
+            mail_content = "".join(mail_add)
+            subject = " ".join([mail_sub%stage,flowcell])
+            content = mail_content%(flowcell, status)
+            self.logger.info("Sending mail ... subject is %s"%subject)
+            try:
+                s = smtplib.SMTP("mail.berrygenomics.com")
+                msg = MIMEText(content,'plain','utf-8')
+                msg['Subject'] = subject
+                msg["From"] = self.mail_sender
+                msg["To"] = ", ".join(self.mail_recipients)
+                s.sendmail(msg["From"],self.mail_recipients, msg.as_string())
+                s.quit()
+                self.logger.info("Mail sending finished")
+            except Exception, e:
+                self.logger.info("Mail sending failed")
+                self.logger.error(e)
+        else:
+            self.logger.info("mail option is false, don't send mail")
+
     def analyse_flowcell(self):
         for flowcell in self.flowcell:
             self.logger.info("Analyzing %s ...." % flowcell)
+            self.send_mail(flowcell, "Track", "开始分析")
             kwargs = self.__dict__.copy()
             kwargs.pop('flowcell')
-            obj = BerryIncrementTrisome(flowcell, **kwargs)
-            obj.pipeline()
+            try:
+                obj = BerryIncrementTrisome(flowcell, **kwargs)
+                obj.pipeline()
+                self.send_mail(flowcell, "Result", "分析完成")
+            except Exception, e:
+                self.send_mail(flowcell, "Error", "分析出错",**{"错误": e})
 
 class BerryIncrementTrisome(object):
     """
