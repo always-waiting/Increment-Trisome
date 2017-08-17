@@ -16,6 +16,8 @@ import pymongo
 import logging
 import smtplib
 from email.mime.text import MIMEText
+import Queue
+import threading
 
 logger = logging.getLogger("default")
 logger.setLevel(logging.DEBUG)
@@ -78,7 +80,8 @@ class BerryIncrementTrisomeAuto(object):
         "logger"            : logger,
         "mail_sender"       : "cnvinfo@berrygenomics.com",
         "mail_recipients"   : ["bixichao@berrygenomics.com"],
-        "mail"              : False
+        "mail"              : False,
+        "process"           : 10,
     }
     def __init__(self,indir,*args,**kwargs):
         self.indir = dirobj(indir)
@@ -191,7 +194,8 @@ class BerryIncrementTrisome(object):
         "db"                : "xromate_mandel",
         "coll"              : "samples",
         "insert_db"         : True,
-        "logger"            : logger
+        "logger"            : logger,
+        "process"           : 5,
     }
     def __init__(self,flowcell, *args, **kwargs):
         self.flowcell = flowcell
@@ -216,8 +220,13 @@ class BerryIncrementTrisome(object):
         self.sampleresult = {}
         self.refdict = {}
         self.zref = {}
+        self.q = Queue.Queue()
+
     def detect_sample(self):
         self.__detect_sample()
+
+    def pre_analyze(self):
+        return self.__pre_analyze()
 
     def __pre_analyze(self):
         self.logger.info("pre analyzing...")
@@ -225,6 +234,9 @@ class BerryIncrementTrisome(object):
         self.__read_win_ref()
         if self.za:
             self.__read_zscore_ref()
+
+    def read_zscore_ref(self):
+        return self.__read_zscore_ref()
 
     def __read_zscore_ref(self):
         """
@@ -250,6 +262,8 @@ class BerryIncrementTrisome(object):
                     else:
                         self.zref[key] = {i:float(value)}
         return self.zref
+    def read_win_ref(self):
+        return self.__read_win_ref()
 
     def __read_win_ref(self):
         """
@@ -276,11 +290,18 @@ class BerryIncrementTrisome(object):
     def __detect_sample(self):
         if len(self.samplelist) != 0:
             self.samplelist = []
+            while not self.q.empty():
+                self.q.get()
         if len(self.sampleresult) != 0:
             self.sampleresult = {}
         for samplefile in glob.glob(os.path.join(self.indir.path,"*.R1.clean.fastq.gz.txt")):
             samplename = samplefile.split("/")[-1].split("_")[0]
             self.samplelist.append(samplename)
+            self.q.put(samplename)
+
+    def read_file(self, sample):
+        return self.__read_file(sample)
+
     def __read_file(self, sample):
         """
         读取比对原始文件，返回需要的变量
@@ -308,97 +329,123 @@ class BerryIncrementTrisome(object):
         gc_per = gc_merge/(rd_merge*36)
         gc_per[gc_per.isnull()] = -1
         return rd_merge, gc_per, gender
+
     def pipeline(self):
         self.__pre_analyze()
-        self.__analyze()
+        self.analyze()
         self.__post_analyze()
 
-    def __analyze(self):
+    def analyze(self):
+        def process_job():
+            while True:
+                next_sample = self.q.get()
+                self._analyze(next_sample)
+                self.q.task_done()
+        workers = []
+        for num in range(self.process):
+            workers.append(threading.Thread(target=process_job))
+        for worker in workers:
+            worker.setDaemon(True)
+            worker.start()
+        self.q.join()
+        """
         for sample in self.samplelist:
-            self.logger.info("Analysing %s"%sample)
-            (rd, gc_per, gender) = self.__read_file(sample)
-            #if not rd: continue # 某个样本读取文件出错!
-            get = (gc_per > 0) & (rd > 0)
-            rd_get = rd[get]
-            gc_per_get = gc_per[get]
-            gc2rd = {}
-            for index in rd_get.columns:
-                pos = 20000*self.bin*(index-1) + 1
-                for chrom in self.chromlist:
-                    if self.refdict[chrom].has_key(pos):
-                        if math.isnan(rd_get[index]["chr%d"%chrom]):
-                            self.refdict[chrom][pos]['rc'] = 1
-                            self.refdict[chrom][pos]['gc'] = float("%.3f"%self.refdict[chrom][pos]['w_gc'])
-                        else:
-                            key = "%.3f"%gc_per_get[index]["chr%d"%chrom]
-                            self.refdict[chrom][pos]['rc'] = int(rd_get[index]["chr%d"%chrom])
-                            self.refdict[chrom][pos]['gc'] = float(key)
-                            if chrom > 22: continue
-                            if gc2rd.has_key(key):
-                                gc2rd[key].append(int(rd_get[index]["chr%d"%chrom]))
-                            else:
-                                gc2rd[key] = [int(rd_get[index]["chr%d"%chrom])]
-            # remove window when rc less than 11
-            for key in gc2rd.keys():
-                if len(gc2rd[key]) < 10: gc2rd.pop(key)
-            # calculate correction coefficent
-            all_median = np.median(sum(gc2rd.values(),[]))
-            gc_rectify = {}
-            for key,value in gc2rd.iteritems():
-                gc_rectify[key] = all_median/np.median(value)
-                if gc_rectify[key] > 2 or gc_rectify[key] < 0.4:
-                    gc_rectify[key] = 1
-            # rectify the windows by gc
-            total_read = {}
-            for chrom in self.refdict.keys():
-                total_read[chrom] = 0
-                for pos in self.refdict[chrom].keys():
-                    gckey = "%.3f"%self.refdict[chrom][pos]['gc']
-                    if gc_rectify.has_key(gckey):
-                        self.refdict[chrom][pos]['rc'] *= gc_rectify[gckey]
-                    total_read[chrom] += self.refdict[chrom][pos]['rc']
-            # get all rd
-            rd_stats = {}
-            for chrom in self.refdict.keys():
-                rd_stats[chrom] = {'ratio':[],'sd':[]}
-                for pos in self.refdict[chrom].keys():
-                    rc = self.refdict[chrom][pos]['rc']
-                    if chrom == 23:
-                        coe = float(self.refdict[chrom][pos]['w_coe'].split("/")[0] if gender == "F" else self.refdict[chrom][pos]['w_coe'].split("/")[1])
+            try:
+                self.__analyze(sample)
+            except Exception,e:
+                raise BerryIncrementTrisomeException("%s analyzing error!")
+        """
+    def _analyze(self, sample):
+        sampledict = {}
+        self.logger.info("Analysing %s"%sample)
+        (rd, gc_per, gender) = self.__read_file(sample)
+        #if not rd: continue # 某个样本读取文件出错!
+        get = (gc_per > 0) & (rd > 0)
+        rd_get = rd[get]
+        gc_per_get = gc_per[get]
+        gc2rd = {}
+        for index in rd_get.columns:
+            pos = 20000*self.bin*(index-1) + 1
+            for chrom in self.chromlist:
+                if not sampledict.has_key(chrom): sampledict[chrom] = {}
+                if self.refdict[chrom].has_key(pos):
+                    if not sampledict[chrom].has_key(pos): sampledict[chrom][pos] = {}
+                    if math.isnan(rd_get[index]["chr%d"%chrom]):
+                        sampledict[chrom][pos]['rc'] = 1
+                        sampledict[chrom][pos]['gc'] = float("%.3f"%self.refdict[chrom][pos]['w_gc'])
                     else:
-                        coe = float(self.refdict[chrom][pos]['w_coe'])
-                    sd = self.refdict[chrom][pos]['w_sd']
-                    if (coe == 0): continue
-                    percent = float("%.3f"%(rc/(sum(total_read.values()[0:22])*coe)))
-                    rd_stats[chrom]['ratio'].append(percent)
-                    rd_stats[chrom]['sd'].append(sd)
+                        key = "%.3f"%gc_per_get[index]["chr%d"%chrom]
+                        sampledict[chrom][pos]['rc'] = int(rd_get[index]["chr%d"%chrom])
+                        sampledict[chrom][pos]['gc'] = float(key)
+                        if chrom > 22: continue
+                        if gc2rd.has_key(key):
+                            gc2rd[key].append(int(rd_get[index]["chr%d"%chrom]))
+                        else:
+                            gc2rd[key] = [int(rd_get[index]["chr%d"%chrom])]
+        # remove window when rc less than 11
+        for key in gc2rd.keys():
+            if len(gc2rd[key]) < 10: gc2rd.pop(key)
+        # calculate correction coefficent
+        all_median = np.median(sum(gc2rd.values(),[]))
+        gc_rectify = {}
+        for key,value in gc2rd.iteritems():
+            gc_rectify[key] = all_median/np.median(value)
+            if gc_rectify[key] > 2 or gc_rectify[key] < 0.4:
+                gc_rectify[key] = 1
+        # rectify the windows by gc
+        total_read = {}
+        for chrom in sampledict.keys():
+            total_read[chrom] = 0
+            for pos in sampledict[chrom].keys():
+                gckey = "%.3f"%sampledict[chrom][pos]['gc']
+                if gc_rectify.has_key(gckey):
+                    sampledict[chrom][pos]['rc'] *= gc_rectify[gckey]
+                total_read[chrom] += sampledict[chrom][pos]['rc']
+        # get all rd
+        rd_stats = {}
+        for chrom in sampledict.keys():
+            rd_stats[chrom] = {'ratio':[],'sd':[]}
+            for pos in sampledict[chrom].keys():
+                rc = sampledict[chrom][pos]['rc']
+                if chrom == 23:
+                    coe = float(self.refdict[chrom][pos]['w_coe'].split("/")[0] if gender == "F" else self.refdict[chrom][pos]['w_coe'].split("/")[1])
+                else:
+                    coe = float(self.refdict[chrom][pos]['w_coe'])
+                sd = self.refdict[chrom][pos]['w_sd']
+                if (coe == 0): continue
+                percent = float("%.3f"%(rc/(sum(total_read.values()[0:22])*coe)))
+                rd_stats[chrom]['ratio'].append(percent)
+                rd_stats[chrom]['sd'].append(sd)
 
-            all_ratio = sum(map(lambda x: rd_stats[x]['ratio'],rd_stats.keys()),[])
-            t_mean = np.mean(all_ratio)
-            t_sd = np.std(all_ratio)
-            self.logger.info("Writing %s result..."%sample)
-            with open(os.path.join(self.indir.path,self.samplefile%(sample,self.bin)),'w') as f:
-                f.write("chr\tRatioMean\tSZ\tPZ\n")
-                for chrom in self.report_chromlist:
-                    ratios = rd_stats[chrom]['ratio']
-                    sds = rd_stats[chrom]['sd']
-                    mean = np.median(ratios)
-                    sd = np.std(sds)
-                    sz = (mean - t_mean)/t_sd
-                    pz = (mean - 1)/sd
-                    #f.write("%d\t%.3f\t%.3f\t%.3f\n"%(chrom,mean,sz,pz))
-                    if self.za:
-                        if chrom == 23:
-                            pz_write = (pz-self.zref[chrom]['mean'][gender])/self.zref[chrom]['std'][gender]
-                        else:
-                            pz_write = (pz-self.zref[chrom]['mean'])/self.zref[chrom]['std']
+        all_ratio = sum(map(lambda x: rd_stats[x]['ratio'],rd_stats.keys()),[])
+        t_mean = np.mean(all_ratio)
+        t_sd = np.std(all_ratio)
+        self.logger.info("Writing %s result..."%sample)
+        with open(os.path.join(self.indir.path,self.samplefile%(sample,self.bin)),'w') as f:
+            f.write("chr\tRatioMean\tSZ\tPZ\n")
+            for chrom in self.report_chromlist:
+                ratios = rd_stats[chrom]['ratio']
+                sds = rd_stats[chrom]['sd']
+                mean = np.median(ratios)
+                sd = np.std(sds)
+                sz = (mean - t_mean)/t_sd
+                pz = (mean - 1)/sd
+                #f.write("%d\t%.3f\t%.3f\t%.3f\n"%(chrom,mean,sz,pz))
+                if self.za:
+                    if chrom == 23:
+                        pz_write = (pz-self.zref[chrom]['mean'][gender])/self.zref[chrom]['std'][gender]
                     else:
-                        pz_write = pz
-                    f.write("%d\t%.3f\t%.3f\t%.3f\n"%(chrom,mean,sz,pz_write))
-                    if self.sampleresult.has_key(sample):
-                        self.sampleresult[sample][chrom] = pz_write
-                    else:
-                        self.sampleresult[sample] = {chrom : pz_write}
+                        pz_write = (pz-self.zref[chrom]['mean'])/self.zref[chrom]['std']
+                else:
+                    pz_write = pz
+                f.write("%d\t%.3f\t%.3f\t%.3f\n"%(chrom,mean,sz,pz_write))
+                if self.sampleresult.has_key(sample):
+                    self.sampleresult[sample][chrom] = pz_write
+                else:
+                    self.sampleresult[sample] = {chrom : pz_write}
+
+    def post_analyze(self):
+        self.__post_analyze()
 
     def __post_analyze(self):
         self.__write_endfile()

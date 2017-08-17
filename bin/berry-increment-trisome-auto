@@ -116,6 +116,7 @@ parser.add_argument("--logfile", help="Log文件地址，默认当前目录下be
 parser.add_argument("--mail_sender", help="邮件发送者",default="bbgbio@berrygenomics.com")
 parser.add_argument("--mail_recipients",help="邮件接受者",default=["bixichao@berrygenomics.com"],action=MailRecipients)
 parser.add_argument("--mail", help="是否发送邮件",action="store_true")
+parser.add_argument("--process", help="线程数", default=10, type=int)
 
 args = parser.parse_args()
 if args.verbose:
